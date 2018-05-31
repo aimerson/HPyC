@@ -1,5 +1,5 @@
 # HPyC
-Python package for submitting/managing HPC jobs.
+Python package for submitting/managing HPC jobs. Currently works to manage jobs with PBS and SLURM schedulers. (SLURM module still in beta.) 
 
 # Download and installation
 Steps to download and install the package:

@@ -3,7 +3,7 @@
 import sys,os,fnmatch,re
 import numpy as np
 import getpass,subprocess,glob
-from .batchJobs import getBatchVariable,JOBCLASS,NULLjob
+from .jobs import getBatchVariable,JOBCLASS
 
     
 ########################################################################################################

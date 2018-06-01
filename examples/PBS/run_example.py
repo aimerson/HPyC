@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 #PBS -S /bin/tcsh
 """
-run_galacticus.py -- run-script for an example PBS job.
+run_example.py -- run-script for an example PBS job.
 
 USAGE: ./run_example.py -arg1 <value> -arg2 <value>
                            

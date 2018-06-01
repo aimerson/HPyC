@@ -13,3 +13,6 @@ If you do not have root access you might need to modify the last step as follows
 ```
 python setup.py install --user
 ```
+
+# Example usage
+Examples of how to use the various classes can be found in the *examples* subdirectory.

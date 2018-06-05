@@ -4,6 +4,7 @@ import sys,os,fnmatch,re
 import numpy as np
 import getpass,subprocess,glob
 from .jobs import getBatchVariable,JOBCLASS
+from .slurmFlags import sbatchFlags
 
     
 ########################################################################################################
@@ -69,61 +70,201 @@ class SLURMjob(object):
 
 
 
-def submitSLURM(script,args=None,PARTITION=None,QOS=None,WALLTIME=None,JOBNAME=None,LOGDIR=None,RUNS=None,NODETYPE=None,\
-                    NODES=1,TASKS=None,CPUS=None,ACCOUNT=None,WORKDIR=None,LICENSE=None,mergeOE=False,verbose=False,submit=True):
-    import sys,os,getpass,fnmatch,subprocess,glob
-    sjob = "sbatch "
-    if PARTITION is not None:
-        sjob = sjob + " -p "+PARTITION
-    if QOS is not None:
-        sjob = sjob + " --qos="+QOS
-    if WALLTIME is not None:
-        sjob = sjob + " --time " + WALLTIME
-    if JOBNAME is not None:
-        sjob = sjob + " -J "+JOBNAME
-    if RUNS is not None:
-        if type(RUNS) is list:
-            RUNS = ",".join(map(str,RUNS))
-        sjob = sjob + " --array="+str(RUNS)
-    if LOGDIR is not None:
-        subprocess.call(["mkdir","-p",LOGDIR])        
-        if JOBNAME is None:
-            filename = 'slurm'
-        else:
-            filename = JOBNAME   
-        filename = filename +'-%J'
-        out = LOGDIR+"/"+filename+'.out'
-        out.encode()
-        err = LOGDIR+"/"+filename+'.err'
-        err.encode()        
-        joint = LOGDIR+"/"+filename+'.out'
-        joint.encode()
-        if mergeOE:
-            sjob = sjob + " -i "+joint
-        else:
-            sjob = sjob + " --output "+out + " --error "+ err
-    if ACCOUNT is not None:
-        sjob = sjob + "-A " + ACCOUNT
-    if NODES is None:
-        NODES = 1
-    sjob = sjob + " -N " + str(NODES)
-    if NODETYPE is not None:
-        sjob = sjob + " -C "+NODETYPE
-    if TASKS is not None:
-        sjob = sjob + " --ntasks-per-node="+str(TASKS)
-    if CPUS is not None:
-        sjob = sjob + " --cpus-per-task="+str(CPUS)
-    if WORKDIR is not None:
-        sjob = sjob + " --workdir="+WORKDIR
-    if LICENSE is not None:
-        sjob = sjob + " -L "+LICENSE
-    if args is not None:
-        argStr = ",".join([k+"="+args[k] for k in args.keys()])
-        sjob = sjob + " --export="+argStr
-    sjob = sjob + " "+script
-    if verbose:
-        print(" Submitting SLURM job: "+sjob)
-    if submit:
-        os.system(sjob)
-    return
 
+class submitSLURM(JOBCLASS):
+    
+    def __init__(self,verbose=False,overwrite=False):
+        super(submitSLURM, self).__init__("SLURM",verbose=verbose)
+        self.cmd = "sbatch "
+        self.appendable = True
+        self.overwrite = overwrite
+        return
+
+    def canAppend(self):
+        if not self.appendable:
+            print("SLURM submission string is not appendable!")
+        return self.appendable
+
+    def replaceOption(self,old,new):
+        S = re.search(old,self.cmd)
+        if S:
+            self.cmd = self.cmd.replace(old,new)
+        return
+
+    def checkForFlag(self,flag=None,longName=None):
+        if flag is None and longName is None:
+            return None
+        S = None
+        if flag is not None:
+            S = re.search(' -'+flag+' (\w+) ',self.cmd)
+            if S is not None: 
+                return S
+        if longName is not None:
+            S = re.search(' --'+longName+'=(\w+) ',self.cmd)
+            if S is not None: 
+                return S
+        return S
+
+    def getFlag(self,flagName):
+        if flagName in sbatchFlags.keys():
+            flag = sbatchFlags[flagname]
+        else:
+            flag = None
+        S = self.checkForFlag(flag=flag,longName=flagName)
+        value = None
+        if S is not None:
+            value = S.group(1)
+        return value
+            
+
+    def addFlag(self,flagName,value):
+        if value is None: return
+        if flagName in sbatchFlags.keys():
+            flag = sbatchFlags[flagName]
+        else:
+            flag = None
+        S = self.checkForFlag(flag=flag,longName=flagName)
+        if S:
+            if not self.overwrite:
+                print("Flag '"+flagName+"' already specified with value = "+S.group(1))
+                return
+            else:
+                self.replaceOption(S.group(0)," --"+flagName+"="+str(value))
+        else:
+            if not self.canAppend(): return
+            self.cmd = self.cmd + " --"+flagName+"="+str(value)+" "
+        return
+
+    def specifyJobArray(self,arrayIndexes):        
+        if arrayIndexes is None:
+            return
+        if type(runs) is list:
+            value = ",".join(list(map(str,arrayIndexes)))
+        else:
+            value = arrayIndexes
+        self.addFlag("array",value)
+        return
+
+    def specifyLogFiles(self,logdir,filePrefix=None,joinOE=True):        
+        if logdir is not None:
+            subprocess.call(["mkdir","-p",logdir])
+        else:
+            logdir = "."
+        if not logdir.endswith("/"):
+            logdir = logdir + "/"
+        if filePrefix is None:
+            name = self.getFlag('job-name')
+            if name is None:
+                filePrefix = "slurmJob"
+            else:
+                filePrefix = name
+        outFile = logdir + filePrefix + '-%J.out'
+        outFile.encode()
+        errFile = logdir + filePrefix + '-%J.err'
+        errFile.encode()
+        if joinOE:
+            self.addFlag("input",outFile)
+        else:
+            self.addFlag("output",outFile)
+            self.addFlag("error",errFile)
+        return
+
+    def passScriptArguments(self,args):
+        if args is None: return
+        S = self.checkForFlag(longName="export")
+        if S is not None:
+            existingArgs = {}
+            for obj in S.group(1).split(","):
+                existingArgs[obj.split("=")[0]] = obj.split("=")[1]
+            allKeys = list(set(existingArgs.keys()+args.keys()))
+            allArgs = [] 
+            for key in allKeys:
+                if key in args.keys() and key in existingArgs.keys():
+                    if self.overwrite:
+                        thisArg = key+"="+str(args[key])
+                    else:
+                        thisArg = key+"="+str(existingArgs[key])
+                else:
+                    if key in args.keys():
+                        thisArg = key+"="+str(args[key])
+                    if key in existingArgs.keys():
+                        thisArg = key+"="+str(existingArgs[key])
+                allArgs.append(thisArg)
+            argString = ",".join(allArgs)
+        S = self.checkForFlag(longName="export") 
+        if S is not None:
+            self.replaceOption(S.group(0),"--export="+argString)
+        else:
+            self.addFlag(self,"export",argString)
+        return
+
+    def setScript(self,script):
+        if script is None: return
+        if not self.canAppend(): return
+        self.appendable = False
+        self.cmd = self.cmd + " " +script+" "
+        return
+
+    def printJobString(self):
+        print(self.cmd.replace("  "," "))
+        return
+
+    def getJobString(self):
+        return self.cmd.replace("  "," ")
+
+    def submitJob(self):
+        os.system(self.cmd.replace("  "," "))
+        return
+        
+    def addPartition(self,part):
+        self.addFlag("partition",part)
+        return
+
+    def addJobName(self,name):
+        self.addFlag("job-name",name)
+        return
+
+    def addAccount(self,account):
+        self.addFlag("account",account)
+        return
+
+    def addLicense(self,License):
+        self.addFlag("licenses",License)
+        return
+
+    def addQOS(self,qos):
+        self.addFlag("qos",qos)
+        return
+
+    def addWorkdir(self,workdir):
+        self.addFlag("workdir",workdir)
+        return
+
+    def addWalltime(self,walltime):
+        self.addFlag("time",walltime)
+        return
+
+    def addNodes(self,nodes=1):
+        if nodes is None:
+            nodes = 1
+        self.addFlag("nodes",str(nodes))
+
+    def addCpusPerTask(self,ncpus):
+        self.addFlag("cpus-per-task",str(ncpus))
+        return
+    
+    def addTasksPerNode(self,ntasks):
+        self.addFlag("cpus-per-node",str(ntasks))
+        return
+
+    def addTasksPerCore(self,ntasks):
+        self.addFlag("cpus-per-core",str(ntasks))
+        return
+
+    def addConstraint(self,constraint):
+        self.addFlag("constraint",constraint)
+        return
+    
+    def addNodeType(self,nodeType):
+        self.addConstraint(nodeType)
+        return

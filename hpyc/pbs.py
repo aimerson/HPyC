@@ -230,7 +230,7 @@ class submitPBS(JOBCLASS):
     def setScript(self,script):
         if script is None: return
         if not self.canAppend(): return            
-        appendable = False
+        self.appendable = False
         self.cmd = self.cmd + " " +script+" "
         return
 

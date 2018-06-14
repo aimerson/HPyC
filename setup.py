@@ -2,7 +2,7 @@
 
 from setuptools import setup, find_packages
 
-setup(name='galacticus',
+setup(name='hpyc',
       version='0.1',
       description='Python package for submitting/managing HPC jobs.',
       url='https://github.com/aimerson/HPyC',
